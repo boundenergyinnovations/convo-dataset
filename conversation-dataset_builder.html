@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation Dataset Builder</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #333;
+        }
+
+        .conversation-turn {
+            margin-bottom: 15px;
+        }
+
+        .turn-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            resize: vertical;
+            background-color: #2b2b2b;
+            color: #e0e0e0;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+
+        .primary-button {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .primary-button:hover {
+            background-color: #0056b3;
+        }
+
+        .secondary-button {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .secondary-button:hover {
+            background-color: #565e64;
+        }
+
+        .edit-button {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .edit-button:hover {
+            background-color: #218838;
+        }
+
+        .delete-button {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .delete-button:hover {
+            background-color: #c82333;
+        }
+
+        .saved-conversation {
+            background-color: #2b2b2b;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .saved-conversation pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #b0bec5;
+        }
+
+        .completion {
+            color: #64b5f6;
+        }
+
+        .icon {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .conversation-actions {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .conversation-actions button {
+            padding: 4px 8px;
+        }
+
+        .editing {
+            border: 2px solid #28a745;
+        }
+
+        #export-container button {
+            background-color: #007bff;
+            color: white;
+            margin-top: 10px;
+        }
+
+        #export-container button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h2 class="card-title">Current Conversation</h2>
+            <div id="current-conversation"></div>
+            <div class="button-group">
+                <button class="primary-button" onclick="addTurn()">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Add Turn
+                </button>
+                <button class="secondary-button" onclick="saveConversation()">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    Save Conversation
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">Saved Conversations</h2>
+            <div id="saved-conversations"></div>
+            <div id="export-container"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentConversation = [];
+        let savedConversations = [];
+        let editingIndex = -1;
+
+        function parseConversation(prompt, completion) {
+            const turns = [];
+            const lines = prompt.split('\n');
+            
+            for (let i = 0; i < lines.length; i++) {
+                const [role, ...contentParts] = lines[i].split(': ');
+                const content = contentParts.join(': ');
+                turns.push({ role, content });
+            }
+            
+            // Add the completion as the last assistant turn
+            turns.push({ 
+                role: 'Assistant', 
+                content: completion.trim() 
+            });
+            
+            return turns;
+        }
+
+        function createTurnElement(turn, index) {
+            const div = document.createElement('div');
+            div.className = 'conversation-turn';
+            
+            const label = document.createElement('div');
+            label.className = 'turn-label';
+            label.textContent = `${turn.role}:`;
+            
+            const textarea = document.createElement('textarea');
+            textarea.value = turn.content;
+            textarea.rows = 2;
+            textarea.oninput = (e) => updateTurn(index, e.target.value);
+            
+            div.appendChild(label);
+            div.appendChild(textarea);
+            return div;
+        }
+
+        function addTurn() {
+            currentConversation.push(
+                { role: 'User', content: '' },
+                { role: 'Assistant', content: '' }
+            );
+            renderCurrentConversation();
+        }
+
+        function updateTurn(index, content) {
+            currentConversation[index].content = content;
+        }
+
+        function formatConversation(conversation) {
+            let formattedDialog = '';
+            // Take all turns except the last one for the prompt
+            for (let i = 0; i < conversation.length - 1; i++) {
+                formattedDialog += `${conversation[i].role}: ${conversation[i].content}\n`;
+            }
+            
+            return {
+                prompt: formattedDialog.slice(0, -1),
+                completion: ` ${conversation[conversation.length - 1].content}`
+            };
+        }
+
+        function saveConversation() {
+            if (currentConversation.length === 0) return;
+            
+            const formattedConversation = formatConversation(currentConversation);
+            
+            if (editingIndex >= 0) {
+                savedConversations[editingIndex] = formattedConversation;
+                editingIndex = -1;
+            } else {
+                savedConversations.push(formattedConversation);
+            }
+            
+            currentConversation = [];
+            renderCurrentConversation();
+            renderSavedConversations();
+        }
+
+        function editConversation(index) {
+            editingIndex = index;
+            const conv = savedConversations[index];
+            currentConversation = parseConversation(conv.prompt, conv.completion);
+            renderCurrentConversation();
+            
+            // Scroll to the top of the page
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function deleteConversation(index) {
+            if (confirm('Are you sure you want to delete this conversation?')) {
+                savedConversations.splice(index, 1);
+                renderSavedConversations();
+            }
+        }
+
+        function exportConversations() {
+            const jsonData = JSON.stringify(savedConversations, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'conversation.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function renderCurrentConversation() {
+            const container = document.getElementById('current-conversation');
+            container.innerHTML = '';
+            currentConversation.forEach((turn, index) => {
+                container.appendChild(createTurnElement(turn, index));
+            });
+        }
+
+        function renderSavedConversations() {
+            const container = document.getElementById('saved-conversations');
+            container.innerHTML = '';
+            
+            savedConversations.forEach((conv, index) => {
+                const div = document.createElement('div');
+                div.className = `saved-conversation ${editingIndex === index ? 'editing' : ''}`;
+                
+                const prompt = document.createElement('pre');
+                prompt.textContent = conv.prompt;
+                
+                const completion = document.createElement('pre');
+                completion.className = 'completion';
+                completion.textContent = 'Assistant:' + conv.completion;
+                
+                const actions = document.createElement('div');
+                actions.className = 'conversation-actions';
+                
+                const editButton = document.createElement('button');
+                editButton.className = 'edit-button';
+                editButton.innerHTML = `
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                    Edit
+                `;
+                editButton.onclick = () => editConversation(index);
+                
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-button';
+                deleteButton.innerHTML = `
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    Delete
+                `;
+                deleteButton.onclick = () => deleteConversation(index);
+                
+                actions.appendChild(editButton);
+                actions.appendChild(deleteButton);
+                
+                div.appendChild(actions);
+                div.appendChild(prompt);
+                div.appendChild(completion);
+                container.appendChild(div);
+            });
+
+            const exportContainer = document.getElementById('export-container');
+            if (savedConversations.length > 0) {
+                exportContainer.innerHTML = `
+                    <button class="primary-button" onclick="exportConversations()">
+                        Export Conversations
+                    </button>
+                `;
+            } else {
+                exportContainer.innerHTML = '';
+            }
+        }
+
+        // Initialize the UI
+        renderCurrentConversation();
+        renderSavedConversations();
+    </script>
+</body>
+</html>
